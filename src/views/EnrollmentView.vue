@@ -23,7 +23,7 @@
           v-model="filters.search"
           type="text"
           placeholder="搜尋課程名稱..."
-          @input="debounceSearch"
+          @input="debouncedSearch"
         />
       </div>
       
@@ -50,15 +50,12 @@
       載入中...
     </div>
 
-    <!-- 錯誤訊息 -->
-    <div v-if="error" class="error-message">
-      {{ error }}
-    </div>
-
-    <!-- 成功訊息 -->
-    <div v-if="successMessage" class="success-message">
-      {{ successMessage }}
-    </div>
+    <!-- 訊息顯示 -->
+    <MessageAlert 
+      :message="message?.text" 
+      :type="message?.type"
+      v-if="message"
+    />
 
     <!-- 課程列表 -->
     <div class="courses-container">
@@ -69,6 +66,7 @@
       <CourseCard
         v-for="course in filteredCourses"
         :key="course.id"
+        v-memo="[course.enrolled_count, course.remaining_slots, isEnrolled(course.id)]"
         :course="course"
         :is-enrolled="isEnrolled(course.id)"
         :enrollment-id="getEnrollmentId(course.id)"
@@ -83,7 +81,9 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useCoursesStore } from '@/stores/courses';
+import { useDebounce } from '@/composables/useDebounce';
 import CourseCard from '@/components/CourseCard.vue';
+import MessageAlert from '@/components/MessageAlert.vue';
 
 const coursesStore = useCoursesStore();
 
@@ -94,11 +94,8 @@ const filters = reactive({
 
 const showEnrolledOnly = ref(false);
 const loading = ref(false);
-const error = ref('');
-const successMessage = ref('');
+const message = ref(null);
 const operatingCourseId = ref(null);
-
-let searchTimer = null;
 
 // 計算屬性
 const myEnrollments = computed(() => coursesStore.myEnrollments);
@@ -117,7 +114,7 @@ const filteredCourses = computed(() => {
 // 方法
 const fetchCourses = async () => {
   loading.value = true;
-  error.value = '';
+  message.value = null;
   
   try {
     const params = {};
@@ -126,11 +123,13 @@ const fetchCourses = async () => {
     
     await coursesStore.fetchCourses(params);
   } catch (err) {
-    error.value = '載入課程失敗';
+    showMessage('載入課程失敗', 'error');
   } finally {
     loading.value = false;
   }
 };
+
+const debouncedSearch = useDebounce(fetchCourses, 500);
 
 const fetchMyEnrollments = async () => {
   try {
@@ -138,13 +137,6 @@ const fetchMyEnrollments = async () => {
   } catch (err) {
     console.error('載入選課資料失敗:', err);
   }
-};
-
-const debounceSearch = () => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => {
-    fetchCourses();
-  }, 500);
 };
 
 const filterCourses = () => {
@@ -160,19 +152,39 @@ const getEnrollmentId = (courseId) => {
   return enrollment?.id || null;
 };
 
+const validateEnrollment = (courseId) => {
+  if (myEnrollments.value.length >= 8) {
+    showMessage('已達選課門數上限（8門）', 'error');
+    return false;
+  }
+  
+  if (isEnrolled(courseId)) {
+    showMessage('您已選過此課程', 'error');
+    return false;
+  }
+  
+  const course = coursesStore.courses.find(c => c.id === courseId);
+  if (course && course.remaining_slots === 0) {
+    showMessage('課程已額滿', 'error');
+    return false;
+  }
+  
+  return true;
+};
+
 const handleEnroll = async (courseId) => {
+  if (!validateEnrollment(courseId)) {
+    return;
+  }
+  
   operatingCourseId.value = courseId;
-  error.value = '';
-  successMessage.value = '';
+  message.value = null;
   
   try {
     await coursesStore.enrollCourse(courseId);
-    successMessage.value = '選課成功！';
-    setTimeout(() => {
-      successMessage.value = '';
-    }, 3000);
+    showMessage('選課成功！', 'success');
   } catch (err) {
-    error.value = err.response?.data?.detail || '選課失敗';
+    showMessage(err.response?.data?.detail || '選課失敗', 'error');
   } finally {
     operatingCourseId.value = null;
   }
@@ -183,26 +195,25 @@ const handleWithdraw = async (enrollmentId) => {
     return;
   }
   
-  // 找出對應的課程ID
   const enrollment = myEnrollments.value.find(e => e.id === enrollmentId);
   if (enrollment) {
     operatingCourseId.value = enrollment.course.id;
   }
   
-  error.value = '';
-  successMessage.value = '';
+  message.value = null;
   
   try {
     await coursesStore.withdrawCourse(enrollmentId);
-    successMessage.value = '退選成功！';
-    setTimeout(() => {
-      successMessage.value = '';
-    }, 3000);
+    showMessage('退選成功！', 'success');
   } catch (err) {
-    error.value = err.response?.data?.detail || '退選失敗';
+    showMessage(err.response?.data?.detail || '退選失敗', 'error');
   } finally {
     operatingCourseId.value = null;
   }
+};
+
+const showMessage = (text, type) => {
+  message.value = { text, type };
 };
 
 // 生命週期
@@ -317,26 +328,6 @@ onMounted(async () => {
   text-align: center;
   padding: 3rem;
   color: #7f8c8d;
-}
-
-.error-message,
-.success-message {
-  padding: 1rem;
-  border-radius: 4px;
-  margin-bottom: 1rem;
-  text-align: center;
-}
-
-.error-message {
-  background-color: #fee;
-  color: #e74c3c;
-  border: 1px solid #fdd;
-}
-
-.success-message {
-  background-color: #d4edda;
-  color: #155724;
-  border: 1px solid #c3e6cb;
 }
 
 .courses-container {

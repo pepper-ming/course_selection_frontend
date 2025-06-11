@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { useAuthStore } from '@/stores/auth';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
@@ -7,13 +8,12 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  withCredentials: true, // 啟用 cookie 以支援 session 認證
+  withCredentials: true,
 });
 
 // 請求攔截器
 apiClient.interceptors.request.use(
   config => {
-    // 從 sessionStorage 取得 CSRF token（如果有的話）
     const csrfToken = sessionStorage.getItem('csrfToken');
     if (csrfToken) {
       config.headers['X-CSRFToken'] = csrfToken;
@@ -29,9 +29,22 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   response => response,
   error => {
-    if (error.response?.status === 401) {
-      // 未授權，導向登入頁
-      window.location.href = '/login';
+    if (error.response) {
+      switch (error.response.status) {
+        case 401:
+          const authStore = useAuthStore();
+          authStore.$reset();
+          window.location.href = '/login';
+          break;
+        case 403:
+          console.error('權限不足或 CSRF token 錯誤');
+          break;
+        case 500:
+          console.error('伺服器錯誤，請稍後再試');
+          break;
+      }
+    } else if (error.request) {
+      console.error('網路連線錯誤，請檢查網路連線');
     }
     return Promise.reject(error);
   }

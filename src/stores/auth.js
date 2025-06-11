@@ -27,46 +27,44 @@ export const useAuthStore = defineStore('auth', {
         return response;
       } catch (error) {
         this.error = error.response?.data?.detail || '登入失敗';
-        throw error;
-      } finally {
-        this.loading = false;
-      }
-    },
+       throw error;
+     } finally {
+       this.loading = false;
+     }
+   },
 
-    async logout() {
-      try {
-        await authService.logout();
-      } finally {
-        this.user = null;
-        this.isAuthenticated = false;
-      }
-    },
+   async logout() {
+     try {
+       await authService.logout();
+     } finally {
+       this.$reset();
+     }
+   },
 
-    async register(userData) {
-      this.loading = true;
-      this.error = null;
-      try {
-        const response = await authService.register(userData);
-        return response;
-      } catch (error) {
-        this.error = error.response?.data?.detail || '註冊失敗';
-        throw error;
-      } finally {
-        this.loading = false;
-      }
-    },
+   async register(userData) {
+     this.loading = true;
+     this.error = null;
+     try {
+       const response = await authService.register(userData);
+       return response;
+     } catch (error) {
+       this.error = error.response?.data?.detail || '註冊失敗';
+       throw error;
+     } finally {
+       this.loading = false;
+     }
+   },
 
-    async fetchCurrentUser() {
-      try {
-        const user = await authService.getCurrentUser();
-        this.user = user;
-        this.isAuthenticated = true;
-        return user;
-      } catch (error) {
-        this.user = null;
-        this.isAuthenticated = false;
-        throw error;
-      }
-    }
-  }
+   async fetchCurrentUser() {
+     try {
+       const user = await authService.getCurrentUser();
+       this.user = user;
+       this.isAuthenticated = true;
+       return user;
+     } catch (error) {
+       this.$reset();
+       throw error;
+     }
+   }
+ }
 });

@@ -42,6 +42,8 @@
         @click="$emit('enroll', course.id)"
         class="btn btn-primary"
         :disabled="loading"
+        :aria-label="`選修${course.name}`"
+        :aria-disabled="loading"
       >
         {{ loading ? '處理中...' : '選課' }}
       </button>
@@ -51,6 +53,8 @@
         @click="$emit('withdraw', enrollmentId)"
         class="btn btn-danger"
         :disabled="loading"
+        :aria-label="`退選${course.name}`"
+        :aria-disabled="loading"
       >
         {{ loading ? '處理中...' : '退選' }}
       </button>
@@ -63,6 +67,7 @@
 </template>
 
 <script setup>
+import { computed } from 'vue';
 import TimeSlotDisplay from './TimeSlotDisplay.vue';
 
 const props = defineProps({
@@ -94,10 +99,11 @@ const props = defineProps({
 
 const emit = defineEmits(['enroll', 'withdraw']);
 
-const isFull = props.course.remaining_slots === 0;
+const isFull = computed(() => props.course.remaining_slots === 0);
 </script>
 
 <style scoped>
+/* 原有的樣式保持不變 */
 .course-card {
   border: 1px solid #ddd;
   border-radius: 8px;

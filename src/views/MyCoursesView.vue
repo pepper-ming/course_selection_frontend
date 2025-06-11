@@ -107,21 +107,22 @@
       </div>
     </div>
 
-    <!-- 成功/錯誤訊息 -->
-    <div v-if="message" :class="['message', message.type]">
-      {{ message.text }}
-    </div>
+    <!-- 訊息顯示 -->
+    <MessageAlert 
+      :message="message?.text" 
+      :type="message?.type"
+      v-if="message"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useCoursesStore } from '@/stores/courses';
-import { useRouter } from 'vue-router';
 import CourseCard from '@/components/CourseCard.vue';
+import MessageAlert from '@/components/MessageAlert.vue';
 
 const coursesStore = useCoursesStore();
-const router = useRouter();
 
 const viewMode = ref('list');
 const loading = ref(false);
@@ -208,7 +209,19 @@ const fetchMyCourses = async () => {
   }
 };
 
+const validateWithdraw = () => {
+  if (myEnrollments.value.length <= 2) {
+    showMessage('至少需選擇 2 門課程，無法再退選', 'error');
+    return false;
+  }
+  return true;
+};
+
 const handleWithdraw = async (enrollmentId) => {
+  if (!validateWithdraw()) {
+    return;
+  }
+  
   if (!confirm('確定要退選這門課程嗎？')) {
     return;
   }
@@ -228,9 +241,6 @@ const handleWithdraw = async (enrollmentId) => {
 
 const showMessage = (text, type) => {
   message.value = { text, type };
-  setTimeout(() => {
-    message.value = null;
-  }, 3000);
 };
 
 // 生命週期
@@ -240,6 +250,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 原有的樣式保持不變 */
 .my-courses-page {
   max-width: 1200px;
   margin: 0 auto;
@@ -344,14 +355,12 @@ onMounted(() => {
   background-color: #2980b9;
 }
 
-/* 列表視圖 */
 .courses-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
   gap: 1.5rem;
 }
 
-/* 時間表視圖 */
 .calendar-container {
   overflow-x: auto;
   background: white;
@@ -415,29 +424,6 @@ onMounted(() => {
   font-size: 0.8rem;
   opacity: 0.9;
   margin-top: 0.25rem;
-}
-
-/* 訊息 */
-.message {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  padding: 1rem 1.5rem;
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  z-index: 1000;
-}
-
-.message.success {
-  background: #d4edda;
-  color: #155724;
-  border: 1px solid #c3e6cb;
-}
-
-.message.error {
-  background: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
 }
 
 @media (max-width: 768px) {

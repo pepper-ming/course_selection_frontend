@@ -12,7 +12,7 @@
           v-model="filters.search"
           type="text"
           placeholder="搜尋課程名稱..."
-          @input="debounceSearch"
+          @input="debouncedSearch"
         />
       </div>
       
@@ -56,6 +56,7 @@
       <CourseCard
         v-for="course in coursesStore.courses"
         :key="course.id"
+        v-memo="[course.enrolled_count, course.remaining_slots]"
         :course="course"
         :show-actions="false"
         :show-description="true"
@@ -70,8 +71,9 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { reactive, onMounted } from 'vue';
 import { useCoursesStore } from '@/stores/courses';
+import { useDebounce } from '@/composables/useDebounce';
 import CourseCard from '@/components/CourseCard.vue';
 
 const coursesStore = useCoursesStore();
@@ -81,8 +83,6 @@ const filters = reactive({
   type: '',
   semester: ''
 });
-
-let searchTimer = null;
 
 const fetchCourses = async () => {
   const params = {};
@@ -94,12 +94,7 @@ const fetchCourses = async () => {
   await coursesStore.fetchCourses(params);
 };
 
-const debounceSearch = () => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => {
-    fetchCourses();
-  }, 500);
-};
+const debouncedSearch = useDebounce(fetchCourses, 500);
 
 const resetFilters = () => {
   filters.search = '';
@@ -114,6 +109,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 原有的樣式保持不變 */
 .course-list-page {
   max-width: 1200px;
   margin: 0 auto;
