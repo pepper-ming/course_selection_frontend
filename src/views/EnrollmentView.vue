@@ -42,6 +42,10 @@
           />
           只顯示已選課程
         </label>
+
+        <button @click="refreshData" class="refresh-btn" :disabled="loading">
+          {{ loading ? '重新整理中...' : '重新整理' }}
+        </button>
       </div>
     </div>
 
@@ -57,6 +61,8 @@
       v-if="message"
     />
 
+    <!-- 移除除錯資訊 -->
+
     <!-- 課程列表 -->
     <div class="courses-container">
       <div v-if="filteredCourses.length === 0 && !loading" class="empty-state">
@@ -65,8 +71,7 @@
       
       <CourseCard
         v-for="course in filteredCourses"
-        :key="course.id"
-        v-memo="[course.enrolled_count, course.remaining_slots, isEnrolled(course.id)]"
+        :key="`course-${course.id}-${refreshKey}`"
         :course="course"
         :is-enrolled="isEnrolled(course.id)"
         :enrollment-id="getEnrollmentId(course.id)"
@@ -83,7 +88,6 @@ import { ref, reactive, computed, onMounted } from 'vue';
 import { useCoursesStore } from '@/stores/courses';
 import { useDebounce } from '@/composables/useDebounce';
 import CourseCard from '@/components/CourseCard.vue';
-import MessageAlert from '@/components/MessageAlert.vue';
 
 const coursesStore = useCoursesStore();
 
@@ -96,16 +100,17 @@ const showEnrolledOnly = ref(false);
 const loading = ref(false);
 const message = ref(null);
 const operatingCourseId = ref(null);
+const refreshKey = ref(0); // 用於強制重新渲染組件
 
 // 計算屬性
 const myEnrollments = computed(() => coursesStore.myEnrollments);
+const enrolledCourseIds = computed(() => coursesStore.enrolledCourseIds);
 
 const filteredCourses = computed(() => {
   let courses = coursesStore.courses;
   
   if (showEnrolledOnly.value) {
-    const enrolledIds = coursesStore.enrolledCourseIds;
-    courses = courses.filter(course => enrolledIds.includes(course.id));
+    courses = courses.filter(course => enrolledCourseIds.value.includes(course.id));
   }
   
   return courses;
@@ -122,29 +127,44 @@ const fetchCourses = async () => {
     if (filters.type) params.type = filters.type;
     
     await coursesStore.fetchCourses(params);
+    console.log('課程載入完成，總數：', coursesStore.courses.length);
   } catch (err) {
+    console.error('載入課程失敗：', err);
     showMessage('載入課程失敗', 'error');
   } finally {
     loading.value = false;
   }
 };
 
-const debouncedSearch = useDebounce(fetchCourses, 500);
-
 const fetchMyEnrollments = async () => {
   try {
     await coursesStore.fetchMyEnrollments();
+    console.log('選課資料載入完成，已選課程：', myEnrollments.value.length);
+    console.log('已選課程詳細：', myEnrollments.value);
   } catch (err) {
     console.error('載入選課資料失敗:', err);
+    showMessage('載入選課資料失敗', 'error');
   }
 };
+
+const refreshData = async () => {
+  console.log('開始重新整理資料...');
+  await Promise.all([
+    fetchCourses(),
+    fetchMyEnrollments()
+  ]);
+  refreshKey.value++; // 強制重新渲染
+  console.log('資料重新整理完成');
+};
+
+const debouncedSearch = useDebounce(fetchCourses, 500);
 
 const filterCourses = () => {
   // 篩選功能由 computed 處理
 };
 
 const isEnrolled = (courseId) => {
-  return coursesStore.enrolledCourseIds.includes(courseId);
+  return enrolledCourseIds.value.includes(courseId);
 };
 
 const getEnrollmentId = (courseId) => {
@@ -153,19 +173,105 @@ const getEnrollmentId = (courseId) => {
 };
 
 const validateEnrollment = (courseId) => {
+  // 檢查選課門數上限
   if (myEnrollments.value.length >= 8) {
     showMessage('已達選課門數上限（8門）', 'error');
     return false;
   }
   
+  // 檢查是否重複選課
   if (isEnrolled(courseId)) {
     showMessage('您已選過此課程', 'error');
     return false;
   }
   
+  // 檢查課程是否額滿
   const course = coursesStore.courses.find(c => c.id === courseId);
   if (course && course.remaining_slots === 0) {
     showMessage('課程已額滿', 'error');
+    return false;
+  }
+  
+  // 檢查時間衝突
+  if (checkTimeConflict(courseId)) {
+    const conflictCourse = getConflictCourse(courseId);
+    showMessage(`時間衝突：與「${conflictCourse}」的上課時間重疊`, 'error');
+    return false;
+  }
+  
+  return true;
+};
+
+// 時間衝突檢查函數
+const checkTimeConflict = (courseId) => {
+  const targetCourse = coursesStore.courses.find(c => c.id === courseId);
+  if (!targetCourse || !targetCourse.timeslots) return false;
+  
+  for (const enrollment of myEnrollments.value) {
+    const enrolledCourse = enrollment.course;
+    if (!enrolledCourse.timeslots) continue;
+    
+    // 檢查每個時段是否有衝突
+    for (const newSlot of targetCourse.timeslots) {
+      for (const existingSlot of enrolledCourse.timeslots) {
+        if (isTimeSlotConflict(newSlot, existingSlot)) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+};
+
+// 檢查兩個時間時段是否衝突
+const isTimeSlotConflict = (slot1, slot2) => {
+  // 不同天不會衝突
+  if (slot1.day_of_week !== slot2.day_of_week) return false;
+  
+  // 轉換時間為分鐘數便於比較
+  const toMinutes = (timeStr) => {
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    return hours * 60 + minutes;
+  };
+  
+  const start1 = toMinutes(slot1.start_time);
+  const end1 = toMinutes(slot1.end_time);
+  const start2 = toMinutes(slot2.start_time);
+  const end2 = toMinutes(slot2.end_time);
+  
+  // 時間重疊檢查：如果開始時間小於另一個結束時間，且結束時間大於另一個開始時間
+  return start1 < end2 && end1 > start2;
+};
+
+// 取得衝突課程名稱
+const getConflictCourse = (courseId) => {
+  const targetCourse = coursesStore.courses.find(c => c.id === courseId);
+  if (!targetCourse || !targetCourse.timeslots) return '';
+  
+  for (const enrollment of myEnrollments.value) {
+    const enrolledCourse = enrollment.course;
+    if (!enrolledCourse.timeslots) continue;
+    
+    for (const newSlot of targetCourse.timeslots) {
+      for (const existingSlot of enrolledCourse.timeslots) {
+        if (isTimeSlotConflict(newSlot, existingSlot)) {
+          return enrolledCourse.name;
+        }
+      }
+    }
+  }
+  return '';
+};
+
+const validateWithdraw = (enrollmentId) => {
+  if (myEnrollments.value.length <= 2) {
+    showMessage('至少需選擇 2 門課程，無法再退選', 'error');
+    return false;
+  }
+  
+  const enrollment = myEnrollments.value.find(e => e.id === enrollmentId);
+  if (!enrollment) {
+    showMessage('找不到選課記錄', 'error');
     return false;
   }
   
@@ -181,16 +287,26 @@ const handleEnroll = async (courseId) => {
   message.value = null;
   
   try {
-    await coursesStore.enrollCourse(courseId);
+    const enrollment = await coursesStore.enrollCourse(courseId);
+    
+    // 重新載入資料確保狀態同步
+    await refreshData();
+    
     showMessage('選課成功！', 'success');
   } catch (err) {
-    showMessage(err.response?.data?.detail || '選課失敗', 'error');
+    console.error('選課失敗：', err);
+    const errorMessage = err.response?.data?.detail || '選課失敗';
+    showMessage(errorMessage, 'error');
   } finally {
     operatingCourseId.value = null;
   }
 };
 
 const handleWithdraw = async (enrollmentId) => {
+  if (!validateWithdraw(enrollmentId)) {
+    return;
+  }
+  
   if (!confirm('確定要退選這門課程嗎？')) {
     return;
   }
@@ -204,9 +320,15 @@ const handleWithdraw = async (enrollmentId) => {
   
   try {
     await coursesStore.withdrawCourse(enrollmentId);
+    
+    // 重新載入資料確保狀態同步
+    await refreshData();
+    
     showMessage('退選成功！', 'success');
   } catch (err) {
-    showMessage(err.response?.data?.detail || '退選失敗', 'error');
+    console.error('退選失敗：', err);
+    const errorMessage = err.response?.data?.detail || '退選失敗';
+    showMessage(errorMessage, 'error');
   } finally {
     operatingCourseId.value = null;
   }
@@ -214,14 +336,17 @@ const handleWithdraw = async (enrollmentId) => {
 
 const showMessage = (text, type) => {
   message.value = { text, type };
+  console.log('顯示訊息:', text, type);
+  // 不自動清除訊息，讓使用者手動關閉
+};
+
+const clearMessage = () => {
+  message.value = null;
 };
 
 // 生命週期
 onMounted(async () => {
-  await Promise.all([
-    fetchCourses(),
-    fetchMyEnrollments()
-  ]);
+  await refreshData();
 });
 </script>
 
@@ -321,6 +446,92 @@ onMounted(async () => {
 
 .checkbox-label input[type="checkbox"] {
   cursor: pointer;
+}
+
+.refresh-btn {
+  padding: 0.75rem 1rem;
+  background-color: #28a745;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background-color 0.3s;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background-color: #218838;
+}
+
+.refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.debug-info {
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 4px;
+  padding: 1rem;
+  margin-bottom: 2rem;
+  font-size: 0.9rem;
+}
+
+.debug-info h4 {
+  margin: 0 0 0.5rem 0;
+  color: #856404;
+}
+
+.debug-info p {
+  margin: 0.25rem 0;
+  color: #856404;
+}
+
+.message-alert {
+  margin-bottom: 2rem;
+  padding: 1rem 1.5rem;
+  border-radius: 4px;
+  border: 1px solid;
+  position: relative;
+}
+
+.message-alert.success {
+  background-color: #d4edda;
+  border-color: #c3e6cb;
+  color: #155724;
+}
+
+.message-alert.error {
+  background-color: #f8d7da;
+  border-color: #f5c6cb;
+  color: #721c24;
+}
+
+.message-alert.info {
+  background-color: #d1ecf1;
+  border-color: #bee5eb;
+  color: #0c5460;
+}
+
+.message-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 1rem;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.close-btn:hover {
+  opacity: 1;
 }
 
 .loading-state,

@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { useAuthStore } from '@/stores/auth';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+// 修正：使用相對路徑，讓 Vite 代理處理
+const API_BASE_URL = '/api';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -11,13 +12,10 @@ const apiClient = axios.create({
   withCredentials: true,
 });
 
-// 請求攔截器
+// 請求攔截器 - 簡化 CSRF 處理
 apiClient.interceptors.request.use(
   config => {
-    const csrfToken = sessionStorage.getItem('csrfToken');
-    if (csrfToken) {
-      config.headers['X-CSRFToken'] = csrfToken;
-    }
+    // 移除 CSRF token 處理，使用 Django 的 CsrfExemptSessionAuthentication
     return config;
   },
   error => {
@@ -29,23 +27,41 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   response => response,
   error => {
+    console.error('API 錯誤:', error);
+    
     if (error.response) {
-      switch (error.response.status) {
+      const status = error.response.status;
+      const data = error.response.data;
+      
+      console.error(`HTTP ${status}:`, data);
+      
+      switch (status) {
         case 401:
+          console.error('認證失敗 - 未登入或登入過期');
           const authStore = useAuthStore();
           authStore.$reset();
-          window.location.href = '/login';
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login';
+          }
           break;
         case 403:
-          console.error('權限不足或 CSRF token 錯誤');
+          console.error('權限不足');
+          break;
+        case 404:
+          console.error('資源不存在');
           break;
         case 500:
-          console.error('伺服器錯誤，請稍後再試');
+          console.error('伺服器內部錯誤');
           break;
+        default:
+          console.error('其他錯誤:', status);
       }
     } else if (error.request) {
-      console.error('網路連線錯誤，請檢查網路連線');
+      console.error('網路錯誤 - 無法連接到伺服器');
+    } else {
+      console.error('請求設定錯誤:', error.message);
     }
+    
     return Promise.reject(error);
   }
 );

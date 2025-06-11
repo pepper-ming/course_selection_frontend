@@ -6,7 +6,7 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/courses'
+      redirect: '/login' // 暫時改為重導向到登入頁
     },
     {
       path: '/login',
@@ -41,29 +41,58 @@ const router = createRouter({
   ]
 });
 
-// 導航守衛
+// 簡化的導航守衛，添加更多調試信息
 router.beforeEach(async (to, from, next) => {
+  console.log('路由導航:', { from: from.path, to: to.path });
+  
   const authStore = useAuthStore();
+  console.log('認證狀態:', {
+    isAuthenticated: authStore.isAuthenticated,
+    user: authStore.user,
+    loading: authStore.loading
+  });
 
-  // 嘗試獲取當前使用者（如果尚未獲取）
-  if (!authStore.user && !authStore.loading) {
-    try {
-      await authStore.fetchCurrentUser();
-    } catch (error) {
-      // 忽略錯誤，使用者未登入
+  try {
+    // 如果還沒有嘗試獲取使用者資訊，且不是在載入中
+    if (!authStore.user && !authStore.loading && !authStore.isAuthenticated) {
+      console.log('嘗試獲取當前使用者...');
+      try {
+        await authStore.fetchCurrentUser();
+        console.log('成功獲取使用者:', authStore.user);
+      } catch (error) {
+        console.log('獲取使用者失敗（可能未登入）:', error.message);
+        // 不需要處理，繼續路由邏輯
+      }
     }
-  }
 
-  // 需要登入的頁面
-  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    next('/login');
-  }
-  // 訪客限定頁面（已登入不能訪問）
-  else if (to.meta.requiresGuest && authStore.isAuthenticated) {
-    next('/courses');
-  }
-  else {
+    // 需要登入的頁面
+    if (to.meta.requiresAuth) {
+      if (!authStore.isAuthenticated) {
+        console.log('需要登入，重導向到登入頁');
+        next('/login');
+        return;
+      }
+    }
+    
+    // 訪客限定頁面（已登入不能訪問）
+    if (to.meta.requiresGuest) {
+      if (authStore.isAuthenticated) {
+        console.log('已登入，重導向到課程頁');
+        next('/courses');
+        return;
+      }
+    }
+    
+    console.log('路由導航成功');
     next();
+  } catch (error) {
+    console.error('路由導航錯誤:', error);
+    // 發生錯誤時，根據目標頁面決定行為
+    if (to.meta.requiresAuth) {
+      next('/login');
+    } else {
+      next();
+    }
   }
 });
 
