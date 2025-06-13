@@ -245,4 +245,50 @@ onMounted(() => {
     grid-template-columns: 1fr !important;
   }
 }
+
+/* 基礎響應式設計 */
+@media (max-width: 768px) {
+  .filters-section {
+    flex-direction: column;
+  }
+  
+  .filter-controls {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .filter-controls select,
+  .filter-controls button {
+    width: 100%;
+    margin-bottom: 0.5rem;
+  }
+  
+  .courses-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .stats-section {
+    flex-direction: column;
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .page-header h1 {
+    font-size: 1.5rem;
+  }
+  
+  .course-card {
+    padding: 1rem;
+  }
+  
+  .view-controls {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .view-btn {
+    width: 100%;
+  }
+}
 </style>
