@@ -242,7 +242,7 @@ onMounted(() => {
   }
   
   .courses-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr !important;
   }
 }
 </style>
